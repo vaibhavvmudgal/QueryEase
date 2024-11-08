@@ -1,101 +1,67 @@
+from dotenv import load_dotenv
+load_dotenv() ## load all the environemnt variables
+
 import streamlit as st
-from pathlib import Path
-from langchain.agents import create_sql_agent
-from langchain.sql_database import SQLDatabase
-from langchain.agents.agent_types import AgentType
-from langchain.callbacks import StreamlitCallbackHandler
-from langchain.agents.agent_toolkits import SQLDatabaseToolkit
-from sqlalchemy import create_engine
+import os
 import sqlite3
-import pandas as pd
-import tempfile
-from langchain_groq import ChatGroq
 
-st.set_page_config(page_title="QueryEase-", page_icon="✿")
-st.title("Chat with SQL DB")
+import google.generativeai as genai
+## Configure Genai Key
 
-# Upload file (SQLite, CSV, Excel)
-uploaded_file = st.sidebar.file_uploader("Upload your SQLite, CSV, or Excel file", type=["db", "sqlite", "csv", "xlsx"])
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Set the Groq API key directly in the code
-api_key = "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"
+## Function To Load Google Gemini Model and provide queries as response
 
-def convert_to_sqlite(file):
-    conn = sqlite3.connect(":memory:")  # Create a temporary in-memory database
-    if file.name.endswith('.csv'):
-        df = pd.read_csv(file)
-        df.to_sql('uploaded_data', conn, index=False, if_exists='replace')
-    elif file.name.endswith('.xlsx'):
-        df = pd.read_excel(file)
-        df.to_sql('uploaded_data', conn, index=False, if_exists='replace')
-    return conn
+def get_gemini_response(question,prompt):
+    model=genai.GenerativeModel('gemini-pro')
+    response=model.generate_content([prompt[0],question])
+    return response.text
 
-if uploaded_file is not None:
-    if uploaded_file.name.endswith(".db") or uploaded_file.name.endswith(".sqlite"):
-        db_uri = "USE_LOCALDB"
-        dbfilepath = Path(uploaded_file.name)
-        with open(dbfilepath, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        conn = sqlite3.connect(f"file:{dbfilepath}?mode=ro", uri=True)
-    elif uploaded_file.name.endswith(".csv") or uploaded_file.name.endswith(".xlsx"):
-        conn = convert_to_sqlite(uploaded_file)
+## Fucntion To retrieve query from the database
 
-    @st.cache_resource(ttl="2h")
-    def configure_db(_conn):
-        creator = lambda: _conn
-        return SQLDatabase(create_engine("sqlite:///", creator=creator))
+def read_sql_query(sql,db):
+    conn=sqlite3.connect(db)
+    cur=conn.cursor()
+    cur.execute(sql)
+    rows=cur.fetchall()
+    conn.commit()
+    conn.close()
+    for row in rows:
+        print(row)
+    return rows
 
-    db = configure_db(conn)
+## Define Your Prompt
+prompt=[
+    """
+    You are an expert in converting English questions to SQL query!
+    The SQL database has the name STUDENT and has the following columns - NAME, CLASS, 
+    SECTION \n\nFor example,\nExample 1 - How many entries of records are present?, 
+    the SQL command will be something like this SELECT COUNT(*) FROM STUDENT ;
+    \nExample 2 - Tell me all the students studying in Data Science class?, 
+    the SQL command will be something like this SELECT * FROM STUDENT 
+    where CLASS="Data Science"; 
+    also the sql code should not have ``` in beginning or end and sql word in output
 
-    if uploaded_file.name.endswith(".csv") or uploaded_file.name.endswith(".xlsx"):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
-            tmp_conn = sqlite3.connect(tmp_db.name)
-            conn.backup(tmp_conn)
-            tmp_conn.close()
-            st.sidebar.download_button(
-                label="Download SQLite Database",
-                data=Path(tmp_db.name).read_bytes(),
-                file_name="converted.db"
-            )
+    """
 
-    # LLM model
-    llm = ChatGroq(groq_api_key=api_key, model_name="Llama3-8b-8192", streaming=True)
 
-    # Initialize SQLDatabaseToolkit with the SQLDatabase instance and LLM
-    toolkit = SQLDatabaseToolkit(db=db, llm=llm)
+]
 
-    # Create the SQL agent with the toolkit
-    agent = create_sql_agent(
-        llm=llm,
-        toolkit=toolkit,
-        verbose=True,
-        agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-        handle_parsing_errors=True  # Enables retry on parsing errors
-    )
+## Streamlit App
 
-    if "messages" not in st.session_state or st.sidebar.button("Clear message history"):
-        st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
+st.set_page_config(page_title="I can Retrieve Any SQL query")
+st.header("Gemini App To Retrieve SQL Data")
 
-    for msg in st.session_state.messages:
-        st.chat_message(msg["role"]).write(msg["content"])
+question=st.text_input("Input: ",key="input")
 
-    user_query = st.chat_input(placeholder="Ask anything from the database")
+submit=st.button("Ask the question")
 
-    if user_query:
-        st.session_state.messages.append({"role": "user", "content": user_query})
-        st.chat_message("user").write(user_query)
-
-        with st.chat_message("assistant"):
-            streamlit_callback = StreamlitCallbackHandler(st.container())
-            try:
-                # Format the query to explicitly state the required output format
-                formatted_query = f"{user_query}\n\nPlease provide the output in a clear and comma-separated list format if multiple items are involved."
-                response = agent.run(formatted_query, callbacks=[streamlit_callback])
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                st.write(response)
-            except ValueError as e:
-                st.write("Output parsing error occurred. Please try rephrasing your query or simplifying the request.")
-            except Exception as e:
-                st.write("Error:", e)
-else:
-    st.info("Please upload a SQLite, CSV, or Excel file to start querying.")
+# if submit is clicked
+if submit:
+    response=get_gemini_response(question,prompt)
+    print(response)
+    response=read_sql_query(response,"student.db")
+    st.subheader("The REsponse is")
+    for row in response:
+        print(row)
+        st.header(row)
