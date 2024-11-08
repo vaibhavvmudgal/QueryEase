@@ -69,7 +69,8 @@ if uploaded_file is not None:
         llm=llm,
         toolkit=toolkit,
         verbose=True,
-        agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION
+        agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+        handle_parsing_errors=True  # Enables retry on parsing errors
     )
 
     if "messages" not in st.session_state or st.sidebar.button("Clear message history"):
