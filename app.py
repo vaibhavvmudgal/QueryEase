@@ -88,9 +88,13 @@ if uploaded_file is not None:
         with st.chat_message("assistant"):
             streamlit_callback = StreamlitCallbackHandler(st.container())
             try:
-                response = agent.run(user_query, callbacks=[streamlit_callback])
+                # Format the query to explicitly state the required output format
+                formatted_query = f"{user_query}\n\nPlease provide the output in a clear and comma-separated list format if multiple items are involved."
+                response = agent.run(formatted_query, callbacks=[streamlit_callback])
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 st.write(response)
+            except ValueError as e:
+                st.write("Output parsing error occurred. Please try rephrasing your query or simplifying the request.")
             except Exception as e:
                 st.write("Error:", e)
 else:
