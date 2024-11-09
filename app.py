@@ -16,7 +16,7 @@ st.title("Chat with SQL DB")
 uploaded_file = st.sidebar.file_uploader("Upload your SQLite Database", type=["db", "sqlite"])
 
 # Set the Groq API key directly in the code
-api_key = "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"
+api_key = "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"
 
 if uploaded_file is not None:
     db_uri = "USE_LOCALDB"
